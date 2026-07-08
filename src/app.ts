@@ -1077,13 +1077,6 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
         map.triggerRepaint();
         await new Promise<void>((resolve) => map.once('idle', () => resolve()));
 
-        // O MapLibre desenha o mapa em pixels FÍSICOS: canvas.width = clientWidth * devicePixelRatio.
-        // Precisamos capturar a UI (cards DOM) na MESMA escala, senão os cards
-        // ficam deslocados/desalinhados em telas HiDPI (Retina).
-        const cssWidth = mapWrapper.clientWidth;
-        const cssHeight = mapWrapper.clientHeight;
-        const scale = mapCanvas.width / cssWidth; // pixel ratio efetivo usado pelo mapa
-
         // Create a final canvas to combine map and UI
         const finalCanvas = document.createElement('canvas');
         finalCanvas.width = mapCanvas.width;
@@ -1100,15 +1093,20 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
             // 2) Só então captura a camada de UI (cards, controles, etc.)
             const originalBackgroundColor = mapWrapper.style.backgroundColor;
             mapWrapper.style.backgroundColor = 'transparent';
+            // Não passamos width/height/windowWidth/windowHeight junto com scale: combinar
+            // essas opções faz o html2canvas escalar duas vezes (uma no layout, outra no
+            // canvas de saída), resultando no conteúdo desenhado só num quarto da imagem
+            // (quando devicePixelRatio = 2). Deixamos o html2canvas medir o elemento e
+            // escalar sozinho (usa window.devicePixelRatio por padrão) e depois esticamos
+            // o resultado para o tamanho final explicitamente no drawImage abaixo — isso
+            // garante 100% de cobertura independentemente da resolução interna escolhida.
             const canvasUI = await html2canvas(mapWrapper, {
                 useCORS: true,
                 backgroundColor: null, // Transparent to show map
-                ignoreElements: (el) => el === mapCanvas || el.id === 'wind-flow-canvas', // Ignore map canvas and wind flow canvas
-                width: cssWidth,        // dimensões em pixels CSS...
-                height: cssHeight,
-                windowWidth: cssWidth,
-                windowHeight: cssHeight,
-                scale: scale,           // ...escaladas para casar com os pixels físicos do mapa
+                ignoreElements: (el) =>
+                    el === mapCanvas ||
+                    el.id === 'wind-flow-canvas' ||
+                    !!el.closest('.maplibregl-ctrl-top-left'), // Exclui os controles de zoom/bússola da exportação
                 onclone: (clonedDoc) => {
                     // A div #map tem background #0b1329 (CSS). O html2canvas ignora o
                     // canvas WebGL, mas pinta esse fundo opaco por cima do mapa na
@@ -1150,7 +1148,8 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
             });
             mapWrapper.style.backgroundColor = originalBackgroundColor;
 
-            // 3) Desenha a UI por cima (canvasUI tem as mesmas dimensões físicas do mapa → alinha 1:1)
+            // 3) Desenha a UI por cima, esticando explicitamente para o tamanho final —
+            //    garante 100% de cobertura mesmo que canvasUI tenha saído em outra resolução.
             ctx.drawImage(canvasUI, 0, 0, finalCanvas.width, finalCanvas.height);
 
             // Download the combined image

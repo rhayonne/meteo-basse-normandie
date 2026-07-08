@@ -1,0 +1,16 @@
+{
+  "name": "meteo-basse-normandie",
+  "version": "1.0.0",
+  "description": "Météo Basse-Normandie Pro",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "gif.js": "^0.2.0",
+    "html2canvas": "^1.4.1"
+  }
+}

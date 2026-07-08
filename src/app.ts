@@ -1079,21 +1079,6 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
         const cssHeight = mapWrapper.clientHeight;
         const scale = mapCanvas.width / cssWidth; // pixel ratio efetivo usado pelo mapa
 
-        // Capture the UI elements (cards, etc.)
-        const originalBackgroundColor = mapWrapper.style.backgroundColor;
-        mapWrapper.style.backgroundColor = 'transparent';
-        const canvasUI = await html2canvas(mapWrapper, {
-            useCORS: true,
-            backgroundColor: null, // Transparent to show map
-            ignoreElements: (el) => el === mapCanvas || el.id === 'wind-flow-canvas', // Ignore map canvas and wind flow canvas
-            width: cssWidth,        // dimensões em pixels CSS...
-            height: cssHeight,
-            windowWidth: cssWidth,
-            windowHeight: cssHeight,
-            scale: scale,           // ...escaladas para casar com os pixels físicos do mapa
-        });
-        mapWrapper.style.backgroundColor = originalBackgroundColor;
-
         // Create a final canvas to combine map and UI
         const finalCanvas = document.createElement('canvas');
         finalCanvas.width = mapCanvas.width;
@@ -1101,10 +1086,28 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
         const ctx = finalCanvas.getContext('2d');
 
         if (ctx) {
-            // Draw map first
+            // 1) Captura o mapa (buffer WebGL) IMEDIATAMENTE, enquanto o frame está bom.
+            //    Isto precisa vir ANTES do html2canvas: o html2canvas clona o DOM e
+            //    dispara um re-render do mapa, que pode gravar um frame transitório
+            //    incorreto (máscara invertida cobrindo a região) no buffer.
             ctx.drawImage(mapCanvas, 0, 0);
 
-            // Draw UI on top (canvasUI agora tem as mesmas dimensões físicas do mapa → alinha 1:1)
+            // 2) Só então captura a camada de UI (cards, controles, etc.)
+            const originalBackgroundColor = mapWrapper.style.backgroundColor;
+            mapWrapper.style.backgroundColor = 'transparent';
+            const canvasUI = await html2canvas(mapWrapper, {
+                useCORS: true,
+                backgroundColor: null, // Transparent to show map
+                ignoreElements: (el) => el === mapCanvas || el.id === 'wind-flow-canvas', // Ignore map canvas and wind flow canvas
+                width: cssWidth,        // dimensões em pixels CSS...
+                height: cssHeight,
+                windowWidth: cssWidth,
+                windowHeight: cssHeight,
+                scale: scale,           // ...escaladas para casar com os pixels físicos do mapa
+            });
+            mapWrapper.style.backgroundColor = originalBackgroundColor;
+
+            // 3) Desenha a UI por cima (canvasUI tem as mesmas dimensões físicas do mapa → alinha 1:1)
             ctx.drawImage(canvasUI, 0, 0, finalCanvas.width, finalCanvas.height);
 
             // Download the combined image

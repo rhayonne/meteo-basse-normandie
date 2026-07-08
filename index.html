@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Météo Basse-Normandie Pro</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+  <!-- Fontes modernas -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+      background: #0b1329;
+    }
+
+    /* Customização da atribuição e logo do MapLibre para integrá-los discretamente */
+    .maplibregl-ctrl-attrib {
+      background: rgba(15, 23, 42, 0.85) !important;
+      backdrop-filter: blur(4px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.05) !important;
+      border-radius: 6px !important;
+      color: #94a3b8 !important;
+      font-size: 10px !important;
+      padding: 2px 8px !important;
+      text-shadow: none !important;
+    }
+    .maplibregl-ctrl-attrib a {
+      color: #38bdf8 !important;
+      text-decoration: none !important;
+    }
+    .maplibregl-ctrl-attrib a:hover {
+      text-decoration: underline !important;
+    }
+    .maplibregl-ctrl-logo {
+      opacity: 0.35 !important;
+      transition: opacity 0.2s !important;
+      margin-bottom: 4px !important;
+    }
+    .maplibregl-ctrl-logo:hover {
+      opacity: 0.8 !important;
+    }
+
+    /* Customização dos botões de controle de zoom e navegação do MapLibre */
+    .maplibregl-ctrl-group {
+      background-color: #0f172a !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+    }
+    .maplibregl-ctrl-group button {
+      background-color: transparent !important;
+      color: #38bdf8 !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+      transition: all 0.2s;
+    }
+    .maplibregl-ctrl-group button:hover {
+      background-color: #1e293b !important;
+      color: #0ea5e9 !important;
+    }
+    .maplibregl-ctrl-icon {
+      filter: invert(1) hue-rotate(180deg) brightness(1.5);
+    }
+
+    /* Customização de rótulos do mapa */
+    .weather-icon-label {
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(4px);
+      border: 1.5px solid rgba(56, 189, 248, 0.6);
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: white;
+      font-weight: 600;
+      text-align: center;
+      white-space: nowrap;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.5);
+      transition: all 0.2s ease-in-out;
+    }
+    
+    .weather-icon-label:hover {
+      transform: scale(1.05);
+      border-color: #38bdf8;
+      box-shadow: 0 12px 20px -3px rgba(56, 189, 248, 0.25);
+    }
+
+    /* Ocultar barra de rolagem mantendo funcionalidade */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    html, body {
+      overflow: hidden !important;
+      height: 100% !important;
+      width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    main {
+      overflow: hidden !important;
+    }
+    /* Empêche les défilements intempestifs du navigateur lors du focus d'éléments */
+    body:focus-within {
+      scroll-behavior: auto !important;
+    }
+  </style>
+  <script type="module" crossorigin src="/assets/index-C3IAHn4O.js"></script>
+</head>
+
+<body class="bg-[#0b0f19] text-gray-100 h-screen flex flex-col overflow-hidden">
+
+  <!-- CABEÇALHO -->
+  <header class="bg-slate-950/90 border-b border-slate-800/80 px-6 py-3 flex justify-between items-center z-[1000]">
+    <div class="flex items-center gap-3">
+      <div class="h-3 w-3 bg-emerald-500 rounded-full animate-pulse"></div>
+      <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+        <span class="text-sky-400">Météo Basse-Normandie</span>
+        <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-medium">Station Radar Pro</span>
+      </h1>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="hidden md:flex flex-col text-right text-xs text-gray-400 font-mono">
+        <span>STATION LIVE</span>
+        <span id="utc-time" class="text-sky-400">--:--:-- UTC</span>
+      </div>
+      <button id="btn-settings"
+        class="bg-slate-800 hover:bg-slate-700 active:scale-95 text-white text-xs font-semibold py-2 px-3 rounded-lg border border-slate-700/60 shadow-lg transition-all flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.43l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        Configurations
+      </button>
+      <!-- Dropdown Exportar -->
+      <div class="relative">
+        <button id="btn-export-map-trigger"
+          class="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white text-xs font-semibold py-2 px-4 rounded-lg border border-slate-700/60 shadow-lg transition-all flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Télécharger Carte
+        </button>
+        <div id="export-dropdown" class="hidden absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-[2000] w-48 py-1">
+          <button id="btn-export-img" class="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white">Exporter Image (PNG)</button>
+          <button id="btn-export-gif" class="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white">Exporter GIF Animé</button>
+        </div>
+      </div>
+      
+      <button id="btn-refresh"
+        class="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-semibold py-2 px-4 rounded-lg shadow-lg shadow-sky-600/10 border border-sky-500/30 transition-all flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+        Mettre à jour
+      </button>
+    </div>
+  </header>
+
+  <style>
+    @keyframes bounce-slow {
+      0%, 100% { transform: translateY(-5%); }
+      50% { transform: translateY(0); }
+    }
+    .animate-bounce-slow {
+      animation: bounce-slow 2s infinite ease-in-out;
+    }
+    @keyframes pulse-icon {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(0.9); opacity: 0.8; }
+    }
+    .animate-pulse-icon {
+      animation: pulse-icon 2s infinite ease-in-out;
+    }
+  </style>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <main class="flex-1 flex relative overflow-hidden">
+    
+    <!-- BARRA LATERAL (SIDEBAR) RECOLHÍVEL -->
+    <aside id="sidebar"
+      class="w-80 bg-slate-950/95 border-r border-slate-800/80 p-5 flex flex-col gap-5 overflow-y-auto no-scrollbar transition-all duration-300 ease-in-out z-20 h-full flex-shrink-0">
+      
+      <!-- Seção 1: Délimitation de la Région -->
+      <div class="flex flex-col gap-2">
+        <div class="flex justify-between items-center">
+          <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">1. Délimitation & Zoom</label>
+          <span class="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">Actif</span>
+        </div>
+        
+        <!-- Dropdown de Regiões -->
+        <div class="relative">
+          <select id="boundary-region"
+            class="w-full bg-slate-900 border border-slate-800 rounded-lg py-2 px-3 text-sm text-gray-200 focus:outline-none focus:border-sky-500 transition cursor-pointer appearance-none">
+            <option value="all" selected>Basse-Normandie (Calvados, Manche, Orne)</option>
+            <option value="14">Calvados (14)</option>
+            <option value="50">Manche (50)</option>
+            <option value="61">Orne (61)</option>
+            <option value="none">Aucune délimitation</option>
+          </select>
+          <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+          </div>
+        </div>
+
+        <!-- Estilo, Espessura e Cor da Borda -->
+        <div class="space-y-2.5 mt-1 bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/40">
+          <div class="grid grid-cols-2 gap-2">
+            <div class="flex flex-col gap-1">
+              <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Style</span>
+              <select id="boundary-dash" class="bg-slate-900 border border-slate-800 rounded py-1 px-1.5 text-xs text-gray-200 focus:outline-none cursor-pointer">
+                <option value="solid" selected>Continu</option>
+                <option value="dashed">Tiret</option>
+                <option value="dotted">Pointillé</option>
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Épaisseur</span>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <input type="range" id="boundary-weight" min="1" max="8" value="3.5" step="0.5" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-500">
+                <span id="boundary-weight-val" class="text-[10px] font-mono text-sky-400">3.5px</span>
+              </div>
+            </div>
+          </div>
+          <!-- Seletor de Cor da Demarcação colocado embaixo -->
+          <div class="flex items-center justify-between border-t border-slate-800/60 pt-2 mt-1">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Couleur</span>
+            <div class="flex items-center gap-2">
+              <input type="color" id="boundary-color" value="#38bdf8"
+                class="w-6 h-6 rounded-full border border-slate-700 bg-transparent cursor-pointer overflow-hidden [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Seção 2: Filtres d'Affichage principal (Botões segmentados) -->
+      <div class="flex flex-col gap-2">
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">2. Variable Principale</label>
+        <div class="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+          <label class="cursor-pointer text-center">
+            <input type="radio" name="data-view" value="temp" checked class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+            <div class="py-2 px-1 rounded-md text-xs font-medium text-slate-400 peer-checked:bg-sky-600 peer-checked:text-white transition-all">
+              Temp. (°C)
+            </div>
+          </label>
+          <label class="cursor-pointer text-center">
+            <input type="radio" name="data-view" value="wind" class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+            <div class="py-2 px-1 rounded-md text-xs font-medium text-slate-400 peer-checked:bg-sky-600 peer-checked:text-white transition-all">
+              Vent (km/h)
+            </div>
+          </label>
+          <label class="cursor-pointer text-center">
+            <input type="radio" name="data-view" value="rain" class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+            <div class="py-2 px-1 rounded-md text-xs font-medium text-slate-400 peer-checked:bg-sky-600 peer-checked:text-white transition-all">
+              Pluie (mm)
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Seção 3: Gérer les Villes (Popover / Dropdown colapsável) -->
+      <div class="flex flex-col gap-2">
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">3. Sélection des Stations</label>
+        
+        <div class="relative">
+          <button id="city-selector-toggle"
+            class="w-full bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg py-2.5 px-3 text-xs font-medium flex justify-between items-center transition text-slate-200">
+            <span id="city-selector-summary">Toutes les stations (9)</span>
+            <svg class="w-4 h-4 text-slate-400 transition-transform duration-200" id="city-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </button>
+          
+          <!-- Dropdown flutuante de Cidades -->
+          <div id="city-selector-dropdown"
+            class="hidden absolute left-0 right-0 mt-2 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl p-3 z-30 flex flex-col gap-1.5 max-h-52 overflow-y-auto">
+            <!-- JS irá popular -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Seção 4: Calques Atmosphériques (Nuvens e Chuva) -->
+      <div class="flex flex-col gap-2">
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">4. Calques Scientifiques</label>
+        <div class="space-y-2 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
+          
+          <!-- Checkbox Chuva -->
+          <label class="flex items-center justify-between cursor-pointer group py-1">
+            <div class="flex flex-col">
+              <span class="text-xs font-medium text-slate-200 group-hover:text-white transition">Radar de Précipitations</span>
+              <span class="text-[10px] text-slate-500">Intensité de pluie en direct</span>
+            </div>
+            <div class="relative">
+              <input type="checkbox" id="layer-rain" checked class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+              <div class="w-9 h-5 bg-slate-800 rounded-full peer peer-focus:ring-0 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600 peer-checked:after:bg-white peer-checked:after:border-white"></div>
+            </div>
+          </label>
+
+          <!-- Checkbox Légende -->
+          <label class="flex items-center justify-between cursor-pointer group py-1 border-t border-slate-800/40 pt-1.5 mt-0.5">
+            <div class="flex flex-col">
+              <span class="text-xs font-medium text-slate-200 group-hover:text-white transition">Afficher la Légende</span>
+              <span class="text-[10px] text-slate-500">Masquer/afficher la boîte de légende</span>
+            </div>
+            <div class="relative">
+              <input type="checkbox" id="toggle-legend" checked class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+              <div class="w-9 h-5 bg-slate-800 rounded-full peer peer-focus:ring-0 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600 peer-checked:after:bg-white peer-checked:after:border-white"></div>
+            </div>
+          </label>
+
+          <!-- Botão Modo Demo -->
+          <button id="btn-demo-mode" class="w-full mt-2 bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:text-sky-400 text-slate-400 text-[10px] font-semibold py-1.5 px-2 rounded-md flex items-center justify-center gap-1.5 transition">
+            <span class="h-2 w-2 bg-slate-600 rounded-full" id="demo-indicator"></span>
+            <span id="demo-text">Simuler des Perturbations (Demo)</span>
+          </button>
+          
+      <!-- Seção 5: Perspective 3D (Simulée) -->
+      <div class="flex flex-col gap-2">
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">5. Perspective 3D</label>
+        <div class="space-y-3 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
+          
+          <!-- Checkbox Modo 3D -->
+          <label class="flex items-center justify-between cursor-pointer group py-1">
+            <div class="flex flex-col">
+              <span class="text-xs font-medium text-slate-200 group-hover:text-white transition">Activer la Vue 3D</span>
+              <span class="text-[10px] text-slate-500">Inclinaison et rotation CSS</span>
+            </div>
+            <div class="relative">
+              <input type="checkbox" id="toggle-3d-mode" class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+              <div class="w-9 h-5 bg-slate-800 rounded-full peer peer-focus:ring-0 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600 peer-checked:after:bg-white peer-checked:after:border-white"></div>
+            </div>
+          </label>
+
+          <!-- Controles adicionais (ocultos por padrão, abrem se 3D ativo) -->
+          <div id="controls-3d" class="hidden space-y-3 pt-2 border-t border-slate-800/60 animate-fadeIn">
+            <!-- Presets -->
+            <div class="flex flex-col gap-1">
+              <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Préréglages</span>
+              <div class="grid grid-cols-3 gap-1">
+                <button id="btn-preset-flat" class="bg-slate-950/80 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[9px] py-1 px-1 rounded transition font-semibold">Plat</button>
+                <button id="btn-preset-oblique" class="bg-slate-950/80 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[9px] py-1 px-1 rounded transition font-semibold">Oblique</button>
+                <button id="btn-preset-extreme" class="bg-slate-950/80 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[9px] py-1 px-1 rounded transition font-semibold">Rasante</button>
+              </div>
+            </div>
+
+            <!-- Slider Pitch (Inclinação) -->
+            <div class="space-y-1">
+              <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+                <span>Inclinaison (X)</span>
+                <span id="val-3d-pitch" class="text-sky-400 font-mono">0°</span>
+              </div>
+              <input type="range" id="slider-3d-pitch" min="0" max="65" value="0"
+                class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+            </div>
+
+            <!-- Slider Yaw (Rotação) -->
+            <div class="space-y-1">
+              <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+                <span>Rotation (Z)</span>
+                <span id="val-3d-yaw" class="text-sky-400 font-mono">0°</span>
+              </div>
+              <input type="range" id="slider-3d-yaw" min="-60" max="60" value="0"
+                class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+            </div>
+
+            <!-- Slider Perspective (Profundidade) -->
+            <div class="space-y-1">
+              <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+                <span>Perspective (px)</span>
+                <span id="val-3d-persp" class="text-sky-400 font-mono">1000px</span>
+              </div>
+              <input type="range" id="slider-3d-persp" min="600" max="2000" step="100" value="1000"
+                class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+            </div>
+            
+            <p class="text-[9px] text-slate-500 leading-relaxed italic">
+              Note: les clics sur la carte peuvent être légèrement décalés par rapport aux projections 2D en mode 3D.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Seção 5: Fonds de Carte -->
+      <div class="flex flex-col gap-2 mt-auto pt-4 border-t border-slate-900">
+        <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Fonds de Carte</label>
+        <div class="grid grid-cols-2 gap-1.5 text-[11px]">
+          <label class="cursor-pointer">
+            <input type="radio" name="map-tile" value="relevo" checked class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+            <div class="py-1.5 px-2 bg-slate-900 border border-slate-800 rounded text-center text-slate-400 peer-checked:border-sky-500 peer-checked:text-sky-400 font-medium hover:bg-slate-800/50 transition">
+              Relief (Topo)
+            </div>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="map-tile" value="satelite" class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+            <div class="py-1.5 px-2 bg-slate-900 border border-slate-800 rounded text-center text-slate-400 peer-checked:border-sky-500 peer-checked:text-sky-400 font-medium hover:bg-slate-800/50 transition">
+              Satellite
+            </div>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="map-tile" value="standard" class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+            <div class="py-1.5 px-2 bg-slate-900 border border-slate-800 rounded text-center text-slate-400 peer-checked:border-sky-500 peer-checked:text-sky-400 font-medium hover:bg-slate-800/50 transition">
+              Sombre
+            </div>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="map-tile" value="osm" class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
+            <div class="py-1.5 px-2 bg-slate-900 border border-slate-800 rounded text-center text-slate-400 peer-checked:border-sky-500 peer-checked:text-sky-400 font-medium hover:bg-slate-800/50 transition">
+              OpenStreetMap
+            </div>
+          </label>
+        </div>
+      </div>
+    </aside>
+
+    <!-- BOTAO FLUTUANTE PARA RETRAIR/EXPANDIR A SIDEBAR (MAIOR, AMBER-500 E MAIS VISÍVEL) -->
+    <button id="btn-toggle-sidebar"
+      class="absolute top-1/2 left-[320px] -translate-y-1/2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold w-9 h-24 flex items-center justify-center border border-amber-300/40 rounded-r-2xl shadow-[0_4px_25px_rgba(245,158,11,0.4)] z-30 transition-all duration-300 focus:outline-none focus:ring-0"
+      title="Masquer/Afficher le panneau">
+      <svg id="toggle-icon" class="w-5 h-5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path>
+      </svg>
+    </button>
+
+    <!-- ÁREA DO MAPA (OCUPA TODO O ESPAÇO RESTANTE) -->
+    <section id="map-perspective-container" class="flex-1 h-full p-3 relative bg-[#0b0f19] z-10">
+      <!-- Wrapper unifié avec taille exacte, bordure et coins arrondis -->
+      <div id="map-wrapper" class="w-full h-full rounded-xl border border-slate-800/60 overflow-hidden relative">
+        <div id="map" class="w-full h-full"></div>
+        <!-- Canvas para Correntes de Vento Procedurais (Wind Streamlines Overlay) -->
+        <canvas id="wind-flow-canvas" class="absolute inset-0 pointer-events-none z-[405]"></canvas>
+      </div>
+
+      <!-- Legenda do Radar / Nuvens no Mapa (Draggable/Arrastável) -->
+      <div id="weather-legend" class="absolute bottom-10 right-10 bg-slate-950/95 backdrop-blur-md border border-slate-700/60 rounded-xl p-3 z-[1000] text-xs max-w-[240px] shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex flex-col gap-2 select-none">
+        <!-- Barra de Arraste Superior -->
+        <div class="drag-handle flex items-center justify-between pb-1.5 border-b border-slate-800/80 cursor-move text-slate-400 hover:text-white transition">
+          <div class="flex items-center gap-1.5">
+            <!-- Ícone de Arrastar (Pontinhos) -->
+            <svg class="w-3.5 h-3.5 text-slate-500" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 6h2v2H8zm4 0h2v2h-2zm4 0h2v2h-2zM8 11h2v2H8zm4 0h2v2h-2zm4 0h2v2h-2zM8 16h2v2H8zm4 0h2v2h-2zm4 0h2v2h-2z"/>
+            </svg>
+            <span class="font-bold text-[10px] uppercase tracking-wider text-slate-300">Légende mobile</span>
+          </div>
+          <span class="h-2 w-2 bg-sky-500 rounded-full animate-pulse" title="Prêt pour le glissement"></span>
+        </div>
+
+        <div class="font-bold text-white flex items-center justify-between text-[11px] mt-0.5">
+          <span>Indicateurs Radar</span>
+        </div>
+        <!-- Legenda Chuva -->
+        <div class="flex flex-col gap-1.5">
+          <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Radar de Pluie (Cercle pulsant)</span>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="w-2.5 h-2.5 bg-emerald-500/60 rounded-full inline-block border border-emerald-400"></span>
+            <span class="text-slate-300">Légère (&lt;1 mm)</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="w-2.5 h-2.5 bg-amber-500/60 rounded-full inline-block border border-amber-400"></span>
+            <span class="text-slate-300">Modérée (1-5 mm)</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="w-2.5 h-2.5 bg-rose-600/70 rounded-full inline-block border border-rose-500"></span>
+            <span class="text-slate-300">Forte (&gt;5 mm)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL DE CONFIGURAÇÕES / CADASTRO DE CIDADES (Glassmorphism dark premium) -->
+  <div id="settings-modal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800/80 rounded-2xl w-full max-w-lg shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col max-h-[90vh] overflow-hidden">
+      
+      <!-- Cabeçalho do Modal -->
+      <div class="px-6 py-4 border-b border-slate-800/60 flex justify-between items-center bg-slate-950/40">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+          </svg>
+          <h2 class="text-base font-bold text-white tracking-wide">Configurations de la Station</h2>
+        </div>
+        <button id="btn-close-settings" class="text-slate-400 hover:text-white hover:bg-slate-800 p-1.5 rounded-lg transition-all">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Conteúdo do Modal (Scrollable) -->
+      <div class="p-6 overflow-y-auto space-y-5 flex-1 no-scrollbar">
+        
+        <!-- Formulário de adição de cidade por CP ou Nom -->
+        <div class="space-y-2 bg-slate-950/40 p-4 border border-slate-800/50 rounded-xl">
+          <h3 class="text-xs font-semibold text-sky-400 uppercase tracking-wider">Ajouter une Ville (Code Postal ou Nom)</h3>
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            Saisissez un code postal ou le nom d'une commune (ex: 14000 ou Caen, 50100 ou Cherbourg, 61000 ou Alençon) pour l'ajouter aux stations surveillées.
+          </p>
+          <div class="flex gap-2 mt-2">
+            <input type="text" id="input-search-cp" placeholder="Ex: 14400 ou Bayeux" maxlength="40"
+              class="flex-1 bg-slate-900 border border-slate-800 focus:border-sky-500 focus:outline-none rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-slate-600 transition">
+            <button id="btn-search-cp"
+              class="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-semibold px-4 py-2 rounded-lg transition flex items-center gap-1.5 shadow-lg shadow-sky-600/15">
+              <span id="spinner-search" class="hidden animate-spin h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full"></span>
+              Rechercher
+            </button>
+          </div>
+          <!-- Resultados da pesquisa -->
+          <div id="search-results-container" class="hidden mt-3 border border-slate-800 bg-slate-900/60 rounded-lg p-2.5 space-y-2">
+            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Résultats de la recherche</span>
+            <div id="search-results-list" class="space-y-1.5 max-h-40 overflow-y-auto">
+              <!-- Resultados injetados aqui -->
+            </div>
+          </div>
+          <!-- Mensagem de Feedback -->
+          <div id="search-feedback" class="hidden text-xs py-1.5 px-3 rounded-lg font-medium"></div>
+        </div>
+
+        <!-- Lista de Cidades Registradas -->
+        <div class="space-y-2">
+          <div class="flex justify-between items-center">
+            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Stations Enregistrées (<span id="count-modal-cities">0</span>)</h3>
+            <button id="btn-reset-cities" class="text-[10px] text-amber-500 hover:text-amber-400 font-medium transition">Réinitialiser par défaut</button>
+          </div>
+          <div id="modal-cities-list" class="border border-slate-800/80 bg-slate-950/20 rounded-xl divide-y divide-slate-800/50 max-h-60 overflow-y-auto no-scrollbar">
+            <!-- JS vai gerar a lista -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Rodapé do Modal -->
+      <div class="px-6 py-4 border-t border-slate-800/60 bg-slate-950/40 flex justify-end gap-3">
+        <button id="btn-close-settings-bottom" class="bg-slate-800 hover:bg-slate-700 text-gray-200 text-xs font-semibold py-2 px-4 rounded-lg transition-all">
+          Fermer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+</body>
+
+</html>

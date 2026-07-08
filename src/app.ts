@@ -129,6 +129,7 @@ let isMapLoaded = false;
 const map = new maplibregl.Map({
     container: 'map',
     preserveDrawingBuffer: true,
+    attributionControl: false, // Substituído abaixo por um controle compacto (ícone ⓘ) para não poluir a tela nem as exportações
     style: {
         version: 8,
         sources: {
@@ -162,6 +163,10 @@ map.addControl(new maplibregl.NavigationControl({
     showCompass: true,
     showZoom: true
 }), 'top-left');
+
+// Atribuição compacta (ícone ⓘ que expande ao clicar) — mantém o crédito exigido
+// pelos provedores de tiles, sem exibir o texto completo permanentemente na tela.
+map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
 map.on('load', () => {
     isMapLoaded = true;
@@ -1104,6 +1109,44 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
                 windowWidth: cssWidth,
                 windowHeight: cssHeight,
                 scale: scale,           // ...escaladas para casar com os pixels físicos do mapa
+                onclone: (clonedDoc) => {
+                    // A div #map tem background #0b1329 (CSS). O html2canvas ignora o
+                    // canvas WebGL, mas pinta esse fundo opaco por cima do mapa na
+                    // composição final. Tornamos transparente APENAS no clone da captura.
+                    const clonedMapDiv = clonedDoc.getElementById('map');
+                    if (clonedMapDiv) clonedMapDiv.style.background = 'transparent';
+                    clonedDoc.querySelectorAll('.maplibregl-map, .maplibregl-canvas-container')
+                        .forEach((el) => { (el as HTMLElement).style.background = 'transparent'; });
+
+                    // O posicionamento do ícone de atribuição (.maplibregl-control-container)
+                    // é aplicado pelo MapLibre via JS, não por uma regra de CSS na folha de
+                    // estilo — o html2canvas nem sempre reproduz isso fielmente no clone.
+                    // Fixamos a posição explicitamente com inline style para garantir que
+                    // fique sempre dentro da moldura do mapa, no canto inferior direito.
+                    const clonedControlContainer = clonedDoc.querySelector('.maplibregl-control-container') as HTMLElement | null;
+                    if (clonedControlContainer) {
+                        clonedControlContainer.style.position = 'absolute';
+                        clonedControlContainer.style.inset = '0';
+                        clonedControlContainer.style.top = '0';
+                        clonedControlContainer.style.left = '0';
+                        clonedControlContainer.style.right = '0';
+                        clonedControlContainer.style.bottom = '0';
+                        clonedControlContainer.style.overflow = 'hidden';
+                    }
+                    const clonedAttribCorner = clonedDoc.querySelector('.maplibregl-ctrl-bottom-right') as HTMLElement | null;
+                    if (clonedAttribCorner) {
+                        clonedAttribCorner.style.position = 'absolute';
+                        clonedAttribCorner.style.right = '0';
+                        clonedAttribCorner.style.bottom = '0';
+                        clonedAttribCorner.style.left = 'auto';
+                        clonedAttribCorner.style.top = 'auto';
+                    }
+                    const clonedAttrib = clonedDoc.querySelector('.maplibregl-ctrl-attrib') as HTMLElement | null;
+                    if (clonedAttrib) {
+                        clonedAttrib.style.margin = '10px';
+                        clonedAttrib.style.position = 'relative';
+                    }
+                },
             });
             mapWrapper.style.backgroundColor = originalBackgroundColor;
 

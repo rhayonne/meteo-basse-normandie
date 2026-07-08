@@ -1068,6 +1068,17 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
     const mapCanvas = map.getCanvas();
     
     if (mapWrapper && mapCanvas) {
+        // Garante que o buffer WebGL do mapa está atualizado no momento da captura
+        map.triggerRepaint();
+        await new Promise<void>((resolve) => map.once('idle', () => resolve()));
+
+        // O MapLibre desenha o mapa em pixels FÍSICOS: canvas.width = clientWidth * devicePixelRatio.
+        // Precisamos capturar a UI (cards DOM) na MESMA escala, senão os cards
+        // ficam deslocados/desalinhados em telas HiDPI (Retina).
+        const cssWidth = mapWrapper.clientWidth;
+        const cssHeight = mapWrapper.clientHeight;
+        const scale = mapCanvas.width / cssWidth; // pixel ratio efetivo usado pelo mapa
+
         // Capture the UI elements (cards, etc.)
         const originalBackgroundColor = mapWrapper.style.backgroundColor;
         mapWrapper.style.backgroundColor = 'transparent';
@@ -1075,10 +1086,11 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
             useCORS: true,
             backgroundColor: null, // Transparent to show map
             ignoreElements: (el) => el === mapCanvas || el.id === 'wind-flow-canvas', // Ignore map canvas and wind flow canvas
-            width: mapCanvas.width, // Explicitly set width
-            height: mapCanvas.height, // Explicitly set height
-            windowWidth: mapWrapper.clientWidth, // Use client dimensions
-            windowHeight: mapWrapper.clientHeight,
+            width: cssWidth,        // dimensões em pixels CSS...
+            height: cssHeight,
+            windowWidth: cssWidth,
+            windowHeight: cssHeight,
+            scale: scale,           // ...escaladas para casar com os pixels físicos do mapa
         });
         mapWrapper.style.backgroundColor = originalBackgroundColor;
 
@@ -1087,14 +1099,14 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
         finalCanvas.width = mapCanvas.width;
         finalCanvas.height = mapCanvas.height;
         const ctx = finalCanvas.getContext('2d');
-        
+
         if (ctx) {
             // Draw map first
             ctx.drawImage(mapCanvas, 0, 0);
-            
-            // Draw UI on top
-            ctx.drawImage(canvasUI, 0, 0);
-            
+
+            // Draw UI on top (canvasUI agora tem as mesmas dimensões físicas do mapa → alinha 1:1)
+            ctx.drawImage(canvasUI, 0, 0, finalCanvas.width, finalCanvas.height);
+
             // Download the combined image
             const link = document.createElement('a');
             link.download = 'carte-meteo.png';

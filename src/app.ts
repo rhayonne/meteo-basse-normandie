@@ -2,6 +2,7 @@
 import basseNormandieGeoJSON from './basse-normandie-depts.json';
 import html2canvas from 'html2canvas';
 import GIF from 'gif.js';
+import { getWeatherIconUrl, getWeatherLabel, getIconStyle, setIconStyle, AVAILABLE_ICON_STYLES } from './weatherIcons';
 
 declare const maplibregl: any;
 
@@ -179,6 +180,64 @@ map.on('load', () => {
 
 let markersList: any[] = [];
 let displayMode = 'temp';
+
+// ==========================================
+// PRÉVISION — Calendrier (jour) + Période du jour
+// ==========================================
+type ForecastPeriod = 'now' | 'matin' | 'apresmidi' | 'soir' | 'nuit';
+let forecastDayOffset = 0; // 0 = aujourd'hui, jusqu'à 6 (7 jours au total)
+let forecastPeriod: ForecastPeriod = 'now';
+
+const FORECAST_PERIOD_HOURS: Record<Exclude<ForecastPeriod, 'now'>, number> = {
+    matin: 8,
+    apresmidi: 14,
+    soir: 19,
+    nuit: 23,
+};
+
+function isForecastModeActive(): boolean {
+    return forecastPeriod !== 'now';
+}
+
+function getForecastTargetDateStr(): string {
+    const d = new Date();
+    d.setDate(d.getDate() + forecastDayOffset);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+// Reconstrói um objeto no formato `current` da Open-Meteo a partir do array `hourly`,
+// buscando o horário exato correspondente ao dia/período selecionados. Isso permite
+// que todo o resto de fetchWeatherData (que já sabe ler `.current.*`) funcione sem
+// nenhuma outra mudança, tanto no modo "ao vivo" quanto no modo "previsão".
+function extractHourlyAsCurrent(cityData: any): { current: any } | null {
+    if (!cityData || !cityData.hourly || !Array.isArray(cityData.hourly.time)) return null;
+    const hour = FORECAST_PERIOD_HOURS[forecastPeriod as Exclude<ForecastPeriod, 'now'>];
+    const targetPrefix = `${getForecastTargetDateStr()}T${String(hour).padStart(2, '0')}:00`;
+    const idx = cityData.hourly.time.indexOf(targetPrefix);
+    if (idx === -1) return null;
+    const h = cityData.hourly;
+    return {
+        current: {
+            temperature_2m: h.temperature_2m?.[idx],
+            weather_code: h.weather_code?.[idx],
+            wind_speed_10m: h.wind_speed_10m?.[idx],
+            wind_direction_10m: h.wind_direction_10m?.[idx],
+            cloud_cover: h.cloud_cover?.[idx],
+            precipitation: h.precipitation?.[idx],
+            is_day: h.is_day?.[idx],
+        },
+    };
+}
+
+function buildForecastApiUrl(lat: string | number, lon: string | number): string {
+    if (isForecastModeActive()) {
+        return `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,is_day&forecast_days=7&timezone=auto`;
+    }
+    return `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,is_day`;
+}
 
 // Cache pour stocker les données de vent et de météo actives par ville pour animer le canevas des courants de vent
 const activeWeatherDataCache: Record<string, {
@@ -362,33 +421,8 @@ function updateBoundary() {
     }
 }
 
-// 4. Lógica de Ícones Meteorológicos Inteligentes baseados em código e chuva real
-function getWeatherIcon(code: number, precipitation: number) {
-    if (precipitation > 0.1) return "🌧️";
-    if (code === 0) return "☀️";
-    if (code >= 1 && code <= 3) return "☁️";
-    if (code >= 45 && code <= 48) return "🌫️";
-    if (code >= 51 && code <= 67) return "🌧️";
-    if (code >= 71 && code <= 77) return "❄️";
-    if (code >= 80 && code <= 82) return "🌧️";
-    if (code >= 85 && code <= 86) return "❄️";
-    if (code >= 95) return "⛈️";
-    return "⛅";
-}
-
-// Retorna uma descrição em francês do clima
-function getWeatherDescription(code: number, precipitation: number): string {
-    if (precipitation > 0.1) return "Pluie";
-    if (code === 0) return "Ensoleillé";
-    if (code >= 1 && code <= 3) return "Nuageux";
-    if (code >= 45 && code <= 48) return "Brouillard";
-    if (code >= 51 && code <= 67) return "Pluie";
-    if (code >= 71 && code <= 77) return "Neige";
-    if (code >= 80 && code <= 82) return "Averses";
-    if (code >= 85 && code <= 86) return "Neige";
-    if (code >= 95) return "Orage";
-    return "Variable";
-}
+// 4. Ícones meteorológicos animados (meteocons) e rótulos em francês — ver src/weatherIcons.ts
+// e src/config/weather-icons.json para o mapeamento código WMO → ícone.
 
 // Retorna a direção do vento (rosa dos ventos em francês)
 function getWindCardinal(deg: number): string {
@@ -451,12 +485,15 @@ async function fetchWeatherData() {
         try {
             const lats = selectedCities.map(c => c.lat).join(',');
             const lons = selectedCities.map(c => c.lon).join(',');
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation`;
-            
+            const url = buildForecastApiUrl(lats, lons);
+
             const response = await fetch(url);
             if (response.ok) {
                 const data = await response.json();
-                const rawArray = Array.isArray(data) ? data : [data];
+                let rawArray = Array.isArray(data) ? data : [data];
+                if (isForecastModeActive()) {
+                    rawArray = rawArray.map((item: any) => extractHourlyAsCurrent(item));
+                }
                 if (rawArray.length === selectedCities.length && rawArray.every(item => item && item.current)) {
                     batchData = rawArray;
                     isBatchSuccessful = true;
@@ -476,6 +513,9 @@ async function fetchWeatherData() {
             let clouds = 50;
             let windDirection = 240;
             let code = 3;
+            // Fallback baseado na hora local caso a API não devolva is_day (ex: modo demo)
+            const localHour = new Date().getHours();
+            let isDay = localHour >= 7 && localHour < 21;
 
             if (isDemoModeActive) {
                 const demo = getDemoWeather(city.name);
@@ -493,15 +533,19 @@ async function fetchWeatherData() {
                 clouds = current.cloud_cover ?? 50;
                 windDirection = current.wind_direction_10m ?? 240;
                 code = current.weather_code ?? 3;
+                isDay = current.is_day === undefined ? isDay : current.is_day === 1;
             } else {
                 // Fallback individual fetch
                 try {
-                    const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation`;
+                    const url = buildForecastApiUrl(city.lat, city.lon);
                     const response = await fetch(url);
                     if (!response.ok) {
                         throw new Error(`HTTP error ${response.status}`);
                     }
-                    const data = await response.json();
+                    let data = await response.json();
+                    if (isForecastModeActive()) {
+                        data = extractHourlyAsCurrent(data);
+                    }
                     if (!data || !data.current) {
                         throw new Error("Invalid response format");
                     }
@@ -511,6 +555,7 @@ async function fetchWeatherData() {
                     clouds = data.current.cloud_cover ?? 50;
                     windDirection = data.current.wind_direction_10m ?? 240;
                     code = data.current.weather_code ?? 3;
+                    isDay = data.current.is_day === undefined ? isDay : data.current.is_day === 1;
                 } catch (individualErr) {
                     console.warn(`Erreur météo pour ${city.name}, utilisation des données simulées (démo/fallback):`, individualErr);
                     const demo = getDemoWeather(city.name);
@@ -533,7 +578,7 @@ async function fetchWeatherData() {
                 code
             };
 
-            const icon = getWeatherIcon(code, rain);
+            const iconUrl = getWeatherIconUrl(code, rain, isDay);
             
             // Texto dinâmico dependendo da variável principal escolhida
             let displayText = "";
@@ -551,31 +596,46 @@ async function fetchWeatherData() {
             
             if (displayMode === 'wind') {
                 customEl.innerHTML = `
-                    <div class="weather-icon-label flex flex-col items-center justify-center gap-1 min-w-[85px] py-1.5 px-2 bg-slate-900/90 rounded-xl border border-slate-700 shadow-xl backdrop-blur-sm">
-                        <span class="text-[9px] text-slate-400 font-bold uppercase tracking-wider block leading-none">${city.name}</span>
-                        <div class="flex items-center gap-1.5 justify-center mt-0.5">
+                    <div class="card">
+                        <span class="card-city">${city.name}</span>
+                        <div class="card-row">
                             <!-- Manche à air / Girouette tournée en fonction de la direction du vent réel -->
-                            <div class="relative w-5 h-5 flex items-center justify-center bg-slate-900/90 rounded-full border border-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.2)]" title="Direction du vent: ${windDirection}°">
-                                <svg class="w-3 h-3 text-amber-400 transition-transform duration-500" style="transform: rotate(${windDirection}deg); transform-origin: center;" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                            <div class="card-compass" title="Direction du vent: ${windDirection}°">
+                                <svg class="card-compass-arrow" style="transform: rotate(${windDirection}deg);" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-4 4m4-4l4 4" />
                                 </svg>
                             </div>
-                            <span class="text-xs font-extrabold text-white leading-none">${displayText}</span>
+                            <span class="card-value">${displayText}</span>
                         </div>
-                        <span class="text-[8px] text-amber-500/90 font-mono tracking-wider block mt-0.5">${getWindCardinal(windDirection)} ${windDirection}°</span>
+                        <span class="card-sub">${getWindCardinal(windDirection)} ${windDirection}°</span>
                     </div>
                 `;
             } else {
-                const subLabelText = getWeatherDescription(code, rain);
-                customEl.innerHTML = `
-                    <div class="weather-icon-label flex flex-col items-center justify-center gap-1 min-w-[85px] py-1.5 px-2 bg-slate-900/90 rounded-xl border border-slate-700 shadow-xl backdrop-blur-sm">
-                        <span class="text-[9px] text-slate-400 font-bold uppercase tracking-wider block leading-none">${city.name}</span>
-                        <div class="flex items-center gap-1.5 justify-center mt-0.5">
-                            <span class="text-sm select-none animate-pulse-icon" title="${subLabelText}">${icon}</span>
-                            <span class="text-xs font-extrabold text-white leading-none">${displayText}</span>
-                        </div>
+                const subLabelText = getWeatherLabel(code, rain);
+                const layout = getCardLayout();
+                const iconTag = `<img class="card-icon" src="${iconUrl}" alt="${subLabelText}" title="${subLabelText}" crossorigin="anonymous">`;
+                const textStack = `
+                    <div class="card-text-stack">
+                        <span class="card-city">${city.name}</span>
+                        <span class="card-value">${displayText}</span>
                     </div>
                 `;
+                if (layout === 'icon-left') {
+                    customEl.innerHTML = `<div class="card card-icon-left">${iconTag}${textStack}</div>`;
+                } else if (layout === 'icon-right') {
+                    customEl.innerHTML = `<div class="card card-icon-right">${textStack}${iconTag}</div>`;
+                } else {
+                    // vertical (padrão): cidade em cima, ícone+valor lado a lado embaixo
+                    customEl.innerHTML = `
+                        <div class="card card-vertical">
+                            <span class="card-city">${city.name}</span>
+                            <div class="card-row">
+                                ${iconTag}
+                                <span class="card-value">${displayText}</span>
+                            </div>
+                        </div>
+                    `;
+                }
             }
 
             const marker = new maplibregl.Marker({ element: customEl })
@@ -1077,29 +1137,48 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
         map.triggerRepaint();
         await new Promise<void>((resolve) => map.once('idle', () => resolve()));
 
+        // Garante que os ícones meteo (carregados do CDN) já terminaram de baixar
+        // antes da captura — senão o html2canvas pode desenhá-los em branco.
+        const iconImgs = Array.from(mapWrapper.querySelectorAll('img.card-icon')) as HTMLImageElement[];
+        await Promise.all(iconImgs.map((img) => {
+            if (img.complete) return Promise.resolve();
+            return new Promise<void>((resolve) => {
+                img.addEventListener('load', () => resolve(), { once: true });
+                img.addEventListener('error', () => resolve(), { once: true });
+            });
+        }));
+
+        // Multiplicador aplicado sobre a resolução nativa para gerar um PNG maior e
+        // mais nítido (adequado para redes sociais), independente do devicePixelRatio
+        // da tela do repórter. Os cards/texto (vetoriais) saem genuinamente mais nítidos;
+        // o mapa raster é reamostrado com suavização de alta qualidade.
+        const EXPORT_SCALE = 2;
+
         // Create a final canvas to combine map and UI
         const finalCanvas = document.createElement('canvas');
-        finalCanvas.width = mapCanvas.width;
-        finalCanvas.height = mapCanvas.height;
+        finalCanvas.width = mapCanvas.width * EXPORT_SCALE;
+        finalCanvas.height = mapCanvas.height * EXPORT_SCALE;
         const ctx = finalCanvas.getContext('2d');
 
         if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+
             // 1) Captura o mapa (buffer WebGL) IMEDIATAMENTE, enquanto o frame está bom.
             //    Isto precisa vir ANTES do html2canvas: o html2canvas clona o DOM e
             //    dispara um re-render do mapa, que pode gravar um frame transitório
             //    incorreto (máscara invertida cobrindo a região) no buffer.
-            ctx.drawImage(mapCanvas, 0, 0);
+            ctx.drawImage(mapCanvas, 0, 0, finalCanvas.width, finalCanvas.height);
 
             // 2) Só então captura a camada de UI (cards, controles, etc.)
             const originalBackgroundColor = mapWrapper.style.backgroundColor;
             mapWrapper.style.backgroundColor = 'transparent';
-            // Não passamos width/height/windowWidth/windowHeight junto com scale: combinar
-            // essas opções faz o html2canvas escalar duas vezes (uma no layout, outra no
-            // canvas de saída), resultando no conteúdo desenhado só num quarto da imagem
-            // (quando devicePixelRatio = 2). Deixamos o html2canvas medir o elemento e
-            // escalar sozinho (usa window.devicePixelRatio por padrão) e depois esticamos
-            // o resultado para o tamanho final explicitamente no drawImage abaixo — isso
-            // garante 100% de cobertura independentemente da resolução interna escolhida.
+            // Não passamos `scale` (nem width/height) aqui: forçar um scale customizado
+            // no html2canvas causou texto invisível nos cards (bug de rasterização de
+            // texto em escalas não-padrão). Deixamos o html2canvas usar seu comportamento
+            // padrão (comprovadamente correto para o texto) e conseguimos a resolução
+            // maior esticando o resultado para finalCanvas (maior, via EXPORT_SCALE) no
+            // drawImage final abaixo.
             const canvasUI = await html2canvas(mapWrapper, {
                 useCORS: true,
                 backgroundColor: null, // Transparent to show map
@@ -1162,11 +1241,146 @@ document.getElementById('btn-export-img')?.addEventListener('click', async () =>
     exportDropdown?.classList.add('hidden');
 });
 
-document.getElementById('btn-export-gif')?.addEventListener('click', () => {
-    // Implementação básica de GIF export (placeholder se necessário, 
-    // ou tentativa usando html2canvas em loop se possível)
-    alert("Exportação de GIF em desenvolvimento.");
+// ==========================================
+// EXPORTAÇÃO DE VÍDEO ANIMADO (MP4) — "com efeitos"
+// ==========================================
+// Estratégia: grava a própria aba (getDisplayMedia) para capturar as animações
+// REAIS (ícones SVG do Meteocons, fluxo de vento) com fidelidade — não é viável
+// recriar essas animações quadro a quadro via html2canvas (lento demais para
+// tempo real). O navegador pede confirmação de compartilhamento a cada
+// exportação; isso é uma exigência de segurança, não um bug.
+// O MediaRecorder só grava em WebM nativamente; convertemos para MP4 (H.264)
+// no próprio navegador via ffmpeg.wasm (~30MB, baixado uma vez e cacheado).
+const VIDEO_DURATION_MS = 4000;
+const FFMPEG_CORE_BASE = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd';
+
+let ffmpegInstance: import('@ffmpeg/ffmpeg').FFmpeg | null = null;
+
+async function getFfmpeg() {
+    if (ffmpegInstance) return ffmpegInstance;
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { toBlobURL } = await import('@ffmpeg/util');
+    const ffmpeg = new FFmpeg();
+    await ffmpeg.load({
+        coreURL: await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+    ffmpegInstance = ffmpeg;
+    return ffmpeg;
+}
+
+function setExportStatus(message: string | null) {
+    const statusEl = document.getElementById('export-status');
+    if (!statusEl) return;
+    if (message === null) {
+        statusEl.classList.add('hidden');
+        statusEl.textContent = '';
+    } else {
+        statusEl.classList.remove('hidden');
+        statusEl.textContent = message;
+    }
+}
+
+document.getElementById('btn-export-video')?.addEventListener('click', async () => {
     exportDropdown?.classList.add('hidden');
+    const mapWrapper = document.getElementById('map-wrapper');
+    if (!mapWrapper) return;
+
+    let displayStream: MediaStream | null = null;
+    let recordedStream: MediaStream | null = null;
+    let animationFrameId = 0;
+
+    try {
+        setExportStatus('Sélectionnez cet onglet dans la fenêtre du navigateur…');
+
+        // `preferCurrentTab` é uma extensão do Chrome que evita o usuário ter que
+        // escolher manualmente a aba certa; navegadores sem suporte ignoram a opção
+        // e mostram o seletor padrão de compartilhamento.
+        displayStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false,
+            preferCurrentTab: true,
+        } as DisplayMediaStreamOptions);
+
+        setExportStatus('Enregistrement en cours…');
+
+        const sourceVideo = document.createElement('video');
+        sourceVideo.srcObject = displayStream;
+        sourceVideo.muted = true;
+        await sourceVideo.play();
+        await new Promise<void>((resolve) => {
+            if (sourceVideo.readyState >= 2) resolve();
+            else sourceVideo.onloadeddata = () => resolve();
+        });
+
+        // Mapeia a área do mapWrapper (coordenadas CSS/viewport) para pixels reais
+        // do stream capturado, que pode vir numa resolução diferente da tela lógica.
+        const rect = mapWrapper.getBoundingClientRect();
+        const scaleX = sourceVideo.videoWidth / window.innerWidth;
+        const scaleY = sourceVideo.videoHeight / window.innerHeight;
+        const cropX = rect.left * scaleX;
+        const cropY = rect.top * scaleY;
+        const cropW = rect.width * scaleX;
+        const cropH = rect.height * scaleY;
+
+        const outputCanvas = document.createElement('canvas');
+        outputCanvas.width = Math.round(cropW);
+        outputCanvas.height = Math.round(cropH);
+        const outCtx = outputCanvas.getContext('2d');
+        if (!outCtx) throw new Error('Contexte 2D indisponible');
+
+        const drawFrame = () => {
+            outCtx.drawImage(sourceVideo, cropX, cropY, cropW, cropH, 0, 0, outputCanvas.width, outputCanvas.height);
+            animationFrameId = requestAnimationFrame(drawFrame);
+        };
+        drawFrame();
+
+        recordedStream = outputCanvas.captureStream(30);
+        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+            ? 'video/webm;codecs=vp9'
+            : 'video/webm';
+        const recorder = new MediaRecorder(recordedStream, { mimeType });
+        const chunks: Blob[] = [];
+        recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+        const webmBlob: Blob = await new Promise((resolve, reject) => {
+            recorder.onerror = () => reject(new Error('Erreur d\'enregistrement'));
+            recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+            recorder.start();
+            setTimeout(() => recorder.stop(), VIDEO_DURATION_MS);
+        });
+
+        cancelAnimationFrame(animationFrameId);
+        displayStream.getTracks().forEach((t) => t.stop());
+        recordedStream.getTracks().forEach((t) => t.stop());
+
+        setExportStatus('Conversion en MP4… (premier usage: télécharge ~30 Mo)');
+
+        const { fetchFile } = await import('@ffmpeg/util');
+        const ffmpeg = await getFfmpeg();
+        await ffmpeg.writeFile('input.webm', await fetchFile(webmBlob));
+        await ffmpeg.exec(['-i', 'input.webm', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', 'output.mp4']);
+        const data = await ffmpeg.readFile('output.mp4');
+        await ffmpeg.deleteFile('input.webm');
+        await ffmpeg.deleteFile('output.mp4');
+
+        const mp4Blob = new Blob([data as unknown as BlobPart], { type: 'video/mp4' });
+        const link = document.createElement('a');
+        link.download = 'carte-meteo.mp4';
+        link.href = URL.createObjectURL(mp4Blob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+
+        setExportStatus(null);
+    } catch (err) {
+        cancelAnimationFrame(animationFrameId);
+        displayStream?.getTracks().forEach((t) => t.stop());
+        recordedStream?.getTracks().forEach((t) => t.stop());
+        console.error('Erreur lors de l\'export vidéo:', err);
+        const isPermissionDenied = err instanceof Error && err.name === 'NotAllowedError';
+        setExportStatus(isPermissionDenied ? 'Partage annulé.' : 'Erreur lors de l\'export vidéo.');
+        setTimeout(() => setExportStatus(null), 3000);
+    }
 });
 
 // Ouvintes para o reposicionamento responsivo do motor de ventos e nuvens ao mover o mapa
@@ -1177,6 +1391,384 @@ map.on('move', () => {
 // Inicializar e rodar o fluxo de vento e dados
 initWindFlow();
 animateWindFlow();
+
+// ==========================================
+// UI — Seletores de Prévision (dia + período)
+// ==========================================
+function renderForecastDaySelector() {
+    const container = document.getElementById('forecast-day-selector');
+    if (!container) return;
+    container.innerHTML = '';
+    for (let offset = 0; offset < 7; offset++) {
+        const d = new Date();
+        d.setDate(d.getDate() + offset);
+        const weekday = offset === 0
+            ? 'Auj.'
+            : new Intl.DateTimeFormat('fr-FR', { weekday: 'short' }).format(d).replace('.', '');
+        const dayNum = d.getDate();
+        const isActive = offset === forecastDayOffset;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `flex flex-col items-center justify-center py-1.5 rounded text-[9px] font-semibold uppercase transition border ${isActive ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'}`;
+        btn.innerHTML = `<span>${weekday}</span><span class="text-[10px] font-mono">${dayNum}</span>`;
+        btn.addEventListener('click', () => {
+            forecastDayOffset = offset;
+            renderForecastDaySelector();
+            fetchWeatherData();
+        });
+        container.appendChild(btn);
+    }
+}
+
+function renderForecastPeriodSelector() {
+    const container = document.getElementById('forecast-period-selector');
+    if (!container) return;
+    container.innerHTML = '';
+    const options: { value: ForecastPeriod; label: string }[] = [
+        { value: 'now', label: 'Actuel' },
+        { value: 'matin', label: 'Matin' },
+        { value: 'apresmidi', label: 'Aprem' },
+        { value: 'soir', label: 'Soir' },
+        { value: 'nuit', label: 'Nuit' },
+    ];
+    options.forEach((opt) => {
+        const isActive = opt.value === forecastPeriod;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `py-1.5 px-1 rounded text-[9px] font-semibold text-center transition border ${isActive ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'}`;
+        btn.textContent = opt.label;
+        btn.addEventListener('click', () => {
+            forecastPeriod = opt.value;
+            renderForecastPeriodSelector();
+            fetchWeatherData();
+        });
+        container.appendChild(btn);
+    });
+}
+
+renderForecastDaySelector();
+renderForecastPeriodSelector();
+
+// ==========================================
+// UI — Seletor de Style dos Ícones Météo (Configurations)
+// ==========================================
+function renderIconStyleSelector() {
+    const container = document.getElementById('icon-style-selector');
+    if (!container) return;
+    container.innerHTML = '';
+    const currentStyle = getIconStyle();
+
+    AVAILABLE_ICON_STYLES.forEach((opt) => {
+        const isActive = opt.value === currentStyle;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `py-2 px-1 rounded-lg text-[10px] font-semibold text-center transition border ${isActive ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'}`;
+        btn.textContent = opt.label;
+        btn.addEventListener('click', () => {
+            setIconStyle(opt.value);
+            renderIconStyleSelector();
+            fetchWeatherData(); // Reconstrói os cards para refletir o novo estilo imediatamente
+        });
+        container.appendChild(btn);
+    });
+}
+
+renderIconStyleSelector();
+
+// ==========================================
+// UI — Seletor de Disposition dos Cards (posição de cidade/ícone/valor)
+// ==========================================
+const CARD_LAYOUT_STORAGE_KEY = 'meteo_normandie_card_layout';
+const CARD_LAYOUT_OPTIONS = [
+    { value: 'vertical', label: 'Vertical' },
+    { value: 'icon-left', label: 'Icône ←' },
+    { value: 'icon-right', label: 'Icône →' },
+];
+
+function getCardLayout(): string {
+    const saved = localStorage.getItem(CARD_LAYOUT_STORAGE_KEY);
+    return CARD_LAYOUT_OPTIONS.some((o) => o.value === saved) ? (saved as string) : 'vertical';
+}
+
+function setCardLayout(layout: string): void {
+    localStorage.setItem(CARD_LAYOUT_STORAGE_KEY, layout);
+}
+
+function renderCardLayoutSelector() {
+    const container = document.getElementById('card-layout-selector');
+    if (!container) return;
+    container.innerHTML = '';
+    const currentLayout = getCardLayout();
+
+    CARD_LAYOUT_OPTIONS.forEach((opt) => {
+        const isActive = opt.value === currentLayout;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `py-2 px-1 rounded-lg text-[10px] font-semibold text-center transition border ${isActive ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'}`;
+        btn.textContent = opt.label;
+        btn.addEventListener('click', () => {
+            setCardLayout(opt.value);
+            renderCardLayoutSelector();
+            fetchWeatherData(); // Reconstrói os cards com a nova disposição
+        });
+        container.appendChild(btn);
+    });
+}
+
+renderCardLayoutSelector();
+
+// ==========================================
+// UI — Slider de Taille des Cartes (Configurations)
+// ==========================================
+const CARD_SCALE_STORAGE_KEY = 'meteo_normandie_card_scale';
+const DEFAULT_CARD_SCALE_PERCENT = 80;
+
+function initCardScaleSlider() {
+    const slider = document.getElementById('slider-card-scale') as HTMLInputElement | null;
+    const valLabel = document.getElementById('val-card-scale');
+    if (!slider) return;
+
+    const saved = localStorage.getItem(CARD_SCALE_STORAGE_KEY);
+    const initialPercent = saved ? parseInt(saved, 10) : DEFAULT_CARD_SCALE_PERCENT;
+    slider.value = String(initialPercent);
+    if (valLabel) valLabel.textContent = `${initialPercent}%`;
+    document.documentElement.style.setProperty('--card-scale', String(initialPercent / 100));
+
+    slider.addEventListener('input', () => {
+        const percent = parseInt(slider.value, 10);
+        if (valLabel) valLabel.textContent = `${percent}%`;
+        // Muda a variável CSS direto: todos os cards já existentes no mapa
+        // reescalam instantaneamente, sem precisar refazer o fetch dos dados.
+        document.documentElement.style.setProperty('--card-scale', String(percent / 100));
+        localStorage.setItem(CARD_SCALE_STORAGE_KEY, String(percent));
+    });
+}
+
+initCardScaleSlider();
+
+// ==========================================
+// UI — Menu expansível "5. Perspective 3D"
+// ==========================================
+const btnToggle3DSection = document.getElementById('btn-toggle-3d-section');
+const section3DPanel = document.getElementById('section-3d-panel');
+const iconToggle3DSection = document.getElementById('icon-toggle-3d-section');
+
+btnToggle3DSection?.addEventListener('click', () => {
+    const isHidden = section3DPanel?.classList.contains('hidden');
+    section3DPanel?.classList.toggle('hidden');
+    iconToggle3DSection?.classList.toggle('rotate-180', isHidden);
+});
+
+// ==========================================
+// UI — Menu expansível "Apparence des Cartes" (fonte, tamanhos, espaçamentos, cores)
+// ==========================================
+const btnToggleCardAppearance = document.getElementById('btn-toggle-card-appearance');
+const cardAppearancePanel = document.getElementById('card-appearance-panel');
+const iconToggleCardAppearance = document.getElementById('icon-toggle-card-appearance');
+
+btnToggleCardAppearance?.addEventListener('click', () => {
+    const isHidden = cardAppearancePanel?.classList.contains('hidden');
+    cardAppearancePanel?.classList.toggle('hidden');
+    iconToggleCardAppearance?.classList.toggle('rotate-180', isHidden);
+});
+
+interface CardAppearance {
+    fontFamily: string;
+    iconSize: number;
+    citySize: number;
+    valueSize: number;
+    gap: number;
+    rowGap: number;
+    paddingTop: number;
+    paddingRight: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    bgColor: string; // hex, sem alpha — a opacidade é aplicada à parte
+    borderColor: string;
+    textColor: string;
+    cityOffsetX: number;
+    cityOffsetY: number;
+    iconOffsetX: number;
+    iconOffsetY: number;
+    valueOffsetX: number;
+    valueOffsetY: number;
+}
+
+const CARD_APPEARANCE_STORAGE_KEY = 'meteo_normandie_card_appearance';
+
+const DEFAULT_CARD_APPEARANCE: CardAppearance = {
+    fontFamily: "'Plus Jakarta Sans', sans-serif",
+    iconSize: 56,
+    citySize: 10,
+    valueSize: 15,
+    gap: 0,
+    rowGap: 0,
+    paddingTop: 2,
+    paddingRight: 6,
+    paddingBottom: 2,
+    paddingLeft: 2,
+    bgColor: '#0f172a',
+    borderColor: '#38bdf8',
+    textColor: '#ffffff',
+    cityOffsetX: 0,
+    cityOffsetY: 0,
+    iconOffsetX: 0,
+    iconOffsetY: 0,
+    valueOffsetX: 0,
+    valueOffsetY: 0,
+};
+
+function loadCardAppearance(): CardAppearance {
+    try {
+        const saved = localStorage.getItem(CARD_APPEARANCE_STORAGE_KEY);
+        if (saved) return { ...DEFAULT_CARD_APPEARANCE, ...JSON.parse(saved) };
+    } catch (e) {
+        console.warn('Impossible de lire les préférences d\'apparence des cartes:', e);
+    }
+    return { ...DEFAULT_CARD_APPEARANCE };
+}
+
+function saveCardAppearance(appearance: CardAppearance) {
+    localStorage.setItem(CARD_APPEARANCE_STORAGE_KEY, JSON.stringify(appearance));
+}
+
+function applyCardAppearance(appearance: CardAppearance) {
+    const root = document.documentElement.style;
+    root.setProperty('--card-font-family', appearance.fontFamily);
+    root.setProperty('--card-icon-size', `${appearance.iconSize}px`);
+    root.setProperty('--card-city-size', `${appearance.citySize}px`);
+    root.setProperty('--card-value-size', `${appearance.valueSize}px`);
+    root.setProperty('--card-gap', `${appearance.gap}px`);
+    root.setProperty('--card-row-gap', `${appearance.rowGap}px`);
+    root.setProperty('--card-padding-top', `${appearance.paddingTop}px`);
+    root.setProperty('--card-padding-right', `${appearance.paddingRight}px`);
+    root.setProperty('--card-padding-bottom', `${appearance.paddingBottom}px`);
+    root.setProperty('--card-padding-left', `${appearance.paddingLeft}px`);
+    // Adiciona um canal alfa fixo (8º e 9º dígitos hex) para manter o efeito
+    // "vidro fosco" do card mesmo com uma cor de fundo escolhida pelo usuário.
+    root.setProperty('--card-bg', `${appearance.bgColor}f2`);
+    root.setProperty('--card-border-color', `${appearance.borderColor}99`);
+    root.setProperty('--card-value-color', appearance.textColor);
+    root.setProperty('--card-city-offset-x', `${appearance.cityOffsetX}px`);
+    root.setProperty('--card-city-offset-y', `${appearance.cityOffsetY}px`);
+    root.setProperty('--card-icon-offset-x', `${appearance.iconOffsetX}px`);
+    root.setProperty('--card-icon-offset-y', `${appearance.iconOffsetY}px`);
+    root.setProperty('--card-value-offset-x', `${appearance.valueOffsetX}px`);
+    root.setProperty('--card-value-offset-y', `${appearance.valueOffsetY}px`);
+}
+
+function syncCardAppearanceControls(appearance: CardAppearance) {
+    const setVal = (id: string, value: string) => {
+        const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+        if (el) el.value = value;
+    };
+    const setLabel = (id: string, text: string) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+    };
+
+    setVal('select-card-font', appearance.fontFamily);
+    setVal('slider-card-icon-size', String(appearance.iconSize));
+    setLabel('val-card-icon-size', `${appearance.iconSize}px`);
+    setVal('slider-card-city-size', String(appearance.citySize));
+    setLabel('val-card-city-size', `${appearance.citySize}px`);
+    setVal('slider-card-value-size', String(appearance.valueSize));
+    setLabel('val-card-value-size', `${appearance.valueSize}px`);
+    setVal('slider-card-gap', String(appearance.gap));
+    setLabel('val-card-gap', `${appearance.gap}px`);
+    setVal('slider-card-row-gap', String(appearance.rowGap));
+    setLabel('val-card-row-gap', `${appearance.rowGap}px`);
+    setVal('slider-card-padding-top', String(appearance.paddingTop));
+    setLabel('val-card-padding-top', `${appearance.paddingTop}px`);
+    setVal('slider-card-padding-right', String(appearance.paddingRight));
+    setLabel('val-card-padding-right', `${appearance.paddingRight}px`);
+    setVal('slider-card-padding-bottom', String(appearance.paddingBottom));
+    setLabel('val-card-padding-bottom', `${appearance.paddingBottom}px`);
+    setVal('slider-card-padding-left', String(appearance.paddingLeft));
+    setLabel('val-card-padding-left', `${appearance.paddingLeft}px`);
+    setVal('color-card-bg', appearance.bgColor);
+    setVal('color-card-border', appearance.borderColor);
+    setVal('color-card-text', appearance.textColor);
+    setVal('slider-card-city-offset-x', String(appearance.cityOffsetX));
+    setLabel('val-card-city-offset-x', `${appearance.cityOffsetX}px`);
+    setVal('slider-card-city-offset-y', String(appearance.cityOffsetY));
+    setLabel('val-card-city-offset-y', `${appearance.cityOffsetY}px`);
+    setVal('slider-card-icon-offset-x', String(appearance.iconOffsetX));
+    setLabel('val-card-icon-offset-x', `${appearance.iconOffsetX}px`);
+    setVal('slider-card-icon-offset-y', String(appearance.iconOffsetY));
+    setLabel('val-card-icon-offset-y', `${appearance.iconOffsetY}px`);
+    setVal('slider-card-value-offset-x', String(appearance.valueOffsetX));
+    setLabel('val-card-value-offset-x', `${appearance.valueOffsetX}px`);
+    setVal('slider-card-value-offset-y', String(appearance.valueOffsetY));
+    setLabel('val-card-value-offset-y', `${appearance.valueOffsetY}px`);
+}
+
+function initCardAppearancePanel() {
+    let appearance = loadCardAppearance();
+    applyCardAppearance(appearance);
+    syncCardAppearanceControls(appearance);
+
+    // Liga cada controle a uma propriedade específica de `appearance`, aplicando
+    // e salvando a cada mudança — sem precisar refazer o fetch dos dados.
+    const bindRange = (id: string, labelId: string, key: keyof CardAppearance, suffix = 'px') => {
+        const el = document.getElementById(id) as HTMLInputElement | null;
+        if (!el) return;
+        el.addEventListener('input', () => {
+            (appearance as any)[key] = parseInt(el.value, 10);
+            const labelEl = document.getElementById(labelId);
+            if (labelEl) labelEl.textContent = `${el.value}${suffix}`;
+            applyCardAppearance(appearance);
+            saveCardAppearance(appearance);
+        });
+    };
+
+    bindRange('slider-card-icon-size', 'val-card-icon-size', 'iconSize');
+    bindRange('slider-card-city-size', 'val-card-city-size', 'citySize');
+    bindRange('slider-card-value-size', 'val-card-value-size', 'valueSize');
+    bindRange('slider-card-gap', 'val-card-gap', 'gap');
+    bindRange('slider-card-row-gap', 'val-card-row-gap', 'rowGap');
+    bindRange('slider-card-padding-top', 'val-card-padding-top', 'paddingTop');
+    bindRange('slider-card-padding-right', 'val-card-padding-right', 'paddingRight');
+    bindRange('slider-card-padding-bottom', 'val-card-padding-bottom', 'paddingBottom');
+    bindRange('slider-card-padding-left', 'val-card-padding-left', 'paddingLeft');
+    bindRange('slider-card-city-offset-x', 'val-card-city-offset-x', 'cityOffsetX');
+    bindRange('slider-card-city-offset-y', 'val-card-city-offset-y', 'cityOffsetY');
+    bindRange('slider-card-icon-offset-x', 'val-card-icon-offset-x', 'iconOffsetX');
+    bindRange('slider-card-icon-offset-y', 'val-card-icon-offset-y', 'iconOffsetY');
+    bindRange('slider-card-value-offset-x', 'val-card-value-offset-x', 'valueOffsetX');
+    bindRange('slider-card-value-offset-y', 'val-card-value-offset-y', 'valueOffsetY');
+
+    const fontSelect = document.getElementById('select-card-font') as HTMLSelectElement | null;
+    fontSelect?.addEventListener('change', () => {
+        appearance.fontFamily = fontSelect.value;
+        applyCardAppearance(appearance);
+        saveCardAppearance(appearance);
+    });
+
+    const bindColor = (id: string, key: keyof CardAppearance) => {
+        const el = document.getElementById(id) as HTMLInputElement | null;
+        if (!el) return;
+        el.addEventListener('input', () => {
+            (appearance as any)[key] = el.value;
+            applyCardAppearance(appearance);
+            saveCardAppearance(appearance);
+        });
+    };
+
+    bindColor('color-card-bg', 'bgColor');
+    bindColor('color-card-border', 'borderColor');
+    bindColor('color-card-text', 'textColor');
+
+    document.getElementById('btn-reset-card-appearance')?.addEventListener('click', () => {
+        appearance = { ...DEFAULT_CARD_APPEARANCE };
+        applyCardAppearance(appearance);
+        syncCardAppearanceControls(appearance);
+        saveCardAppearance(appearance);
+    });
+}
+
+initCardAppearancePanel();
 
 // 10. MODAL DE CONFIGURAÇÕES E GERENCIAMENTO DE CIDADES (SEM BANCO DE DADOS - LOCALSTORAGE JSON)
 const settingsModal = document.getElementById('settings-modal') as HTMLDivElement;
@@ -1488,6 +2080,14 @@ if (toggle3DMode) {
             } else {
                 controls3D.classList.add('hidden');
             }
+        }
+        if (active) {
+            // Ao ativar o 3D: aplica automaticamente a inclinação do preset
+            // "Oblique" (35°), mas mantendo a orientação voltada para o norte
+            // (0°) em vez do yaw padrão do preset. update3DTransform() já anima
+            // a transição suavemente (map.easeTo, mesma animação de sempre).
+            if (slider3DPitch) slider3DPitch.value = '35';
+            if (slider3DYaw) slider3DYaw.value = '0';
         }
         update3DTransform();
     });

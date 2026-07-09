@@ -69,25 +69,267 @@
       filter: invert(1) hue-rotate(180deg) brightness(1.5);
     }
 
+    /* ==========================================================
+       CARD METEO — VARIÁVEIS EDITÁVEIS
+       Mude os valores abaixo para ajustar tamanho/cor dos cards de
+       estação exibidos no mapa (nome da cidade, ícone, temperatura).
+       Não precisa mexer em mais nada — todo o resto deste bloco lê
+       daqui. Unidades em px funcionam melhor aqui que em rem/em.
+       ========================================================== */
+    :root {
+      /* Todas as variáveis abaixo são ajustáveis ao vivo pelo menu "7. Apparence
+         des Cartes" no painel lateral (clique para expandir) — as escolhas ficam
+         salvas no localStorage do navegador. Os valores aqui são só o padrão
+         inicial (antes do usuário mexer em qualquer controle). */
+
+      /* Escala geral do card */
+      --card-scale: 0.8;
+
+      /* Ícone animado (meteocons). Nota: o SVG tem uma margem transparente
+         embutida no próprio desenho, então o ícone "visível" é menor que este
+         valor — aumente aqui se quiser o desenho maior. */
+      --card-icon-size: 56px;
+
+      /* Textos */
+      --card-font-family: 'Plus Jakarta Sans', sans-serif;
+      --card-city-size: 10px;
+      --card-city-color: #94a3b8;
+      --card-value-size: 15px;
+      --card-value-color: #ffffff;
+      --card-sub-size: 8px;
+      --card-sub-color: rgba(245, 158, 11, 0.9);
+
+      /* Cartão (fundo, borda, cantos, espaçamentos) */
+      --card-bg: rgba(15, 23, 42, 0.95);
+      --card-border-color: rgba(56, 189, 248, 0.6);
+      --card-border-width: 1.5px;
+      --card-radius: 10px;
+      --card-padding-top: 2px;
+      --card-padding-right: 6px;
+      --card-padding-bottom: 2px;
+      --card-padding-left: 2px;
+      --card-gap: 0px;
+      --card-row-gap: 0px;
+
+      /* Posição fina de cada elemento (nudge, em px) — não afeta o tamanho do
+         card, só desloca visualmente o elemento a partir da sua posição normal.
+         Positivo em X move para a direita, positivo em Y move para baixo. */
+      --card-city-offset-x: 0px;
+      --card-city-offset-y: 0px;
+      --card-icon-offset-x: 0px;
+      --card-icon-offset-y: 0px;
+      --card-value-offset-x: 0px;
+      --card-value-offset-y: 0px;
+    }
+
     /* Customização de rótulos do mapa */
-    .weather-icon-label {
-      background: rgba(15, 23, 42, 0.95);
+    /* Todo o layout/espaçamento é CSS puro (não Tailwind) de propósito: o Tailwind
+       CDN processa classes de forma assíncrona/reativa, o que causava conflito de
+       especificidade com margens/paddings e resultava em cards com espaçamento
+       inconsistente entre a tela e a imagem exportada. */
+    .card {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: var(--card-gap);
+      background: var(--card-bg);
       backdrop-filter: blur(4px);
-      border: 1.5px solid rgba(56, 189, 248, 0.6);
-      border-radius: 8px;
-      padding: 6px 10px;
-      color: white;
+      border: var(--card-border-width) solid var(--card-border-color);
+      border-radius: var(--card-radius);
+      padding: var(--card-padding-top) var(--card-padding-right) var(--card-padding-bottom) var(--card-padding-left);
+      color: var(--card-value-color);
+      font-family: var(--card-font-family);
       font-weight: 600;
       text-align: center;
       white-space: nowrap;
+      line-height: 1.3;
       box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.5);
       transition: all 0.2s ease-in-out;
+      /* Texto nítido: os markers do MapLibre são posicionados com transform em
+         coordenadas fracionárias de pixel, o que deixa o texto pequeno com aparência
+         embaçada por causa do antialiasing sub-pixel. Isso reduz o efeito. */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      transform: translateZ(0) scale(var(--card-scale));
     }
-    
-    .weather-icon-label:hover {
-      transform: scale(1.05);
+
+    .card * {
+      margin: 0;
+      line-height: 1.3;
+      box-sizing: border-box;
+    }
+
+    .card:hover {
+      transform: translateZ(0) scale(calc(var(--card-scale) * 1.05));
       border-color: #38bdf8;
       box-shadow: 0 12px 20px -3px rgba(56, 189, 248, 0.25);
+    }
+
+    /* Disposition (classe no .card, gerada por JS conforme a escolha em
+       "7. Apparence des Cartes" → Disposition): reorganiza cidade/ícone/valor
+       usando SÓ Flexbox — de propósito sem CSS Grid, que o html2canvas (usado
+       na exportação PNG) não suporta de forma confiável e fazia os elementos
+       simplesmente sumirem da imagem exportada. Usado apenas no modo
+       Température/Pluie; o modo Vent mantém o layout próprio com a bússola. */
+    .card-vertical {
+      flex-direction: column;
+      gap: var(--card-gap);
+    }
+    .card-icon-left,
+    .card-icon-right {
+      gap: var(--card-gap);
+    }
+    .card-icon-left {
+      flex-direction: row;
+    }
+    .card-icon-right {
+      flex-direction: row-reverse;
+    }
+
+    .card-text-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--card-row-gap);
+    }
+
+    /* position:relative + top/left (não transform, não grid) para o "nudge" de
+       posição em "7. Apparence des Cartes" → Position des Éléments: desloca o
+       elemento visualmente sem alterar o espaço que ele reserva no layout —
+       ou seja, mover um elemento não faz o card inteiro crescer/encolher. Essa
+       técnica já se provou 100% compatível com a exportação PNG (html2canvas). */
+    .card-city {
+      position: relative;
+      top: var(--card-city-offset-y);
+      left: var(--card-city-offset-x);
+      font-size: var(--card-city-size);
+      color: var(--card-city-color);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .card-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--card-row-gap);
+    }
+
+    /* Nota: o estilo 'monochrome' do Meteocons usa currentColor no SVG para herdar
+       cor via CSS — isso só funciona com <svg> inline, não com <img src="...">
+       (o navegador isola o documento SVG carregado via <img>). Com <img>, o estilo
+       'monochrome' sai na cor padrão do próprio arquivo (preto), não customizável
+       por aqui. Os estilos 'fill', 'flat' e 'line' têm cor própria e funcionam bem. */
+    /* SEM wrapper/overflow/transform para recortar a margem interna do SVG: essa
+       técnica já causou dois bugs (ícone sumindo na exportação PNG, e o ícone não
+       acompanhar mais o slider "Taille des Cartes"). Um <img> simples, com só
+       width/height (+ position:relative/top/left só para o nudge de posição),
+       sempre escala/move de forma previsível junto com o resto do .card. */
+    .card-icon {
+      display: block;
+      position: relative;
+      top: var(--card-icon-offset-y);
+      left: var(--card-icon-offset-x);
+      width: var(--card-icon-size);
+      height: var(--card-icon-size);
+      flex-shrink: 0;
+    }
+
+    .card-value {
+      position: relative;
+      top: var(--card-value-offset-y);
+      left: var(--card-value-offset-x);
+      font-size: var(--card-value-size);
+      font-weight: 700;
+      color: var(--card-value-color);
+    }
+
+    .card-sub {
+      font-size: var(--card-sub-size);
+      color: var(--card-sub-color);
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.05em;
+    }
+
+    .card-compass {
+      position: relative;
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.9);
+      border-radius: 999px;
+      border: 1px solid rgba(245, 158, 11, 0.5);
+    }
+
+    .card-compass-arrow {
+      width: 11px;
+      height: 11px;
+      color: #fbbf24;
+      transform-origin: center;
+      transition: transform 0.5s;
+    }
+
+    /* ==========================================================
+       BOTÕES DE OPÇÃO SEGMENTADOS (ex: "2. Variable Principale")
+       CSS puro de propósito (não Tailwind peer-checked): o Tailwind
+       CDN processa classes de forma assíncrona, o que fazia o hover/
+       estado selecionado ficar inconsistente. Mude as variáveis abaixo
+       para trocar a cor/transparência do hover e do botão selecionado.
+       ========================================================== */
+    :root {
+      --opt-btn-color: #94a3b8;
+      --opt-btn-hover-bg: rgba(51, 65, 85, 0.8);
+      --opt-btn-hover-color: #ffffff;
+      --opt-btn-active-bg: #0284c7;
+      --opt-btn-active-color: #ffffff;
+    }
+
+    .opt-group {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      background: #0f172a;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid #1e293b;
+    }
+
+    .opt-btn-wrap {
+      cursor: pointer;
+    }
+
+    .opt-input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+
+    .opt-btn {
+      padding: 8px 4px;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--opt-btn-color);
+      background: transparent;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .opt-btn-wrap:hover .opt-btn {
+      background: var(--opt-btn-hover-bg);
+      color: var(--opt-btn-hover-color);
+    }
+
+    .opt-input:checked + .opt-btn {
+      background: var(--opt-btn-active-bg);
+      color: var(--opt-btn-active-color);
     }
 
     /* Ocultar barra de rolagem mantendo funcionalidade */
@@ -149,10 +391,15 @@
           </svg>
           Télécharger Carte
         </button>
-        <div id="export-dropdown" class="hidden absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-[2000] w-48 py-1">
-          <button id="btn-export-img" class="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white">Exporter Image (PNG)</button>
-          <button id="btn-export-gif" class="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white">Exporter GIF Animé</button>
+        <div id="export-dropdown" class="hidden absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-[2000] w-56 py-1">
+          <button id="btn-export-img" class="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white">
+            Image (PNG) <span class="block text-[9px] text-slate-500">Sans effets</span>
+          </button>
+          <button id="btn-export-video" class="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white">
+            Vidéo (MP4) <span class="block text-[9px] text-slate-500">Avec effets animés</span>
+          </button>
         </div>
+        <div id="export-status" class="hidden absolute right-0 mt-2 bg-slate-900 border border-sky-700/60 rounded-lg shadow-xl z-[2000] w-56 px-3 py-2 text-[11px] text-sky-300"></div>
       </div>
       
       <button id="btn-refresh"
@@ -172,13 +419,6 @@
     }
     .animate-bounce-slow {
       animation: bounce-slow 2s infinite ease-in-out;
-    }
-    @keyframes pulse-icon {
-      0%, 100% { transform: scale(1); opacity: 1; }
-      50% { transform: scale(0.9); opacity: 0.8; }
-    }
-    .animate-pulse-icon {
-      animation: pulse-icon 2s infinite ease-in-out;
     }
   </style>
 
@@ -244,24 +484,18 @@
       <!-- Seção 2: Filtres d'Affichage principal (Botões segmentados) -->
       <div class="flex flex-col gap-2">
         <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">2. Variable Principale</label>
-        <div class="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
-          <label class="cursor-pointer text-center">
-            <input type="radio" name="data-view" value="temp" checked class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
-            <div class="py-2 px-1 rounded-md text-xs font-medium text-slate-400 peer-checked:bg-sky-600 peer-checked:text-white transition-all">
-              Temp. (°C)
-            </div>
+        <div class="opt-group">
+          <label class="opt-btn-wrap">
+            <input type="radio" name="data-view" value="temp" checked class="opt-input">
+            <div class="opt-btn">Temp. (°C)</div>
           </label>
-          <label class="cursor-pointer text-center">
-            <input type="radio" name="data-view" value="wind" class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
-            <div class="py-2 px-1 rounded-md text-xs font-medium text-slate-400 peer-checked:bg-sky-600 peer-checked:text-white transition-all">
-              Vent (km/h)
-            </div>
+          <label class="opt-btn-wrap">
+            <input type="radio" name="data-view" value="wind" class="opt-input">
+            <div class="opt-btn">Vent (km/h)</div>
           </label>
-          <label class="cursor-pointer text-center">
-            <input type="radio" name="data-view" value="rain" class="absolute opacity-0 w-0 h-0 pointer-events-none peer">
-            <div class="py-2 px-1 rounded-md text-xs font-medium text-slate-400 peer-checked:bg-sky-600 peer-checked:text-white transition-all">
-              Pluie (mm)
-            </div>
+          <label class="opt-btn-wrap">
+            <input type="radio" name="data-view" value="rain" class="opt-input">
+            <div class="opt-btn">Pluie (mm)</div>
           </label>
         </div>
       </div>
@@ -322,11 +556,17 @@
             <span id="demo-text">Simuler des Perturbations (Demo)</span>
           </button>
           
-      <!-- Seção 5: Perspective 3D (Simulée) -->
-      <div class="flex flex-col gap-2">
-        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">5. Perspective 3D</label>
-        <div class="space-y-3 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
-          
+      <!-- Seção 5: Perspective 3D (Simulée, menu expansível) -->
+      <div class="flex flex-col bg-slate-900/60 rounded-lg border border-slate-800/80 overflow-hidden">
+        <button id="btn-toggle-3d-section" type="button"
+          class="flex justify-between items-center text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5 hover:bg-slate-800/70 hover:text-white transition-all">
+          <span>5. Perspective 3D</span>
+          <svg id="icon-toggle-3d-section" class="w-3.5 h-3.5 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+          </svg>
+        </button>
+        <div id="section-3d-panel" class="hidden space-y-3 px-3 pb-3 pt-1 border-t border-slate-800/60 animate-fadeIn">
+
           <!-- Checkbox Modo 3D -->
           <label class="flex items-center justify-between cursor-pointer group py-1">
             <div class="flex flex-col">
@@ -385,6 +625,255 @@
               Note: les clics sur la carte peuvent être légèrement décalés par rapport aux projections 2D en mode 3D.
             </p>
           </div>
+        </div>
+      </div>
+
+      <!-- Seção 6: Prévision (Calendrier + Période du jour) -->
+      <div class="flex flex-col gap-2">
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">6. Prévision</label>
+        <div class="space-y-2.5 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Jour</span>
+            <div id="forecast-day-selector" class="grid grid-cols-7 gap-1"></div>
+          </div>
+          <div class="flex flex-col gap-1 pt-1 border-t border-slate-800/60">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Période</span>
+            <div id="forecast-period-selector" class="grid grid-cols-5 gap-1"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Seção 7: Apparence des Cartes Météo (menu expansível) -->
+      <div class="flex flex-col bg-slate-900/60 rounded-lg border border-slate-800/80 overflow-hidden">
+        <button id="btn-toggle-card-appearance" type="button"
+          class="flex justify-between items-center text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5 hover:bg-slate-800/70 hover:text-white transition-all">
+          <span>7. Apparence des Cartes</span>
+          <svg id="icon-toggle-card-appearance" class="w-3.5 h-3.5 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+          </svg>
+        </button>
+        <div id="card-appearance-panel" class="hidden space-y-3 px-3 pb-3 pt-1 border-t border-slate-800/60 animate-fadeIn">
+
+          <!-- Style d'Icône -->
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Style d'Icône</span>
+            <div id="icon-style-selector" class="grid grid-cols-4 gap-1.5"></div>
+          </div>
+
+          <!-- Disposition (position des éléments dans le card) -->
+          <div class="flex flex-col gap-1 pt-2 border-t border-slate-800/60">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Disposition</span>
+            <div id="card-layout-selector" class="grid grid-cols-3 gap-1.5"></div>
+          </div>
+
+          <!-- Police -->
+          <div class="flex flex-col gap-1 pt-2 border-t border-slate-800/60">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Police</span>
+            <select id="select-card-font"
+              class="w-full bg-slate-900 border border-slate-800 rounded-lg py-1.5 px-2 text-xs text-gray-200 focus:outline-none focus:border-sky-500 transition cursor-pointer">
+              <option value="'Plus Jakarta Sans', sans-serif">Plus Jakarta Sans</option>
+              <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+              <option value="Arial, sans-serif">Arial</option>
+              <option value="Georgia, serif">Georgia</option>
+              <option value="Verdana, sans-serif">Verdana</option>
+              <option value="'Courier New', monospace">Courier New</option>
+            </select>
+          </div>
+
+          <!-- Taille des Cartes -->
+          <div class="space-y-1 pt-2 border-t border-slate-800/60">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+              <span>Taille des Cartes</span>
+              <span id="val-card-scale" class="text-sky-400 font-mono">80%</span>
+            </div>
+            <input type="range" id="slider-card-scale" min="50" max="150" step="5" value="80"
+              class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+          </div>
+
+          <!-- Taille de l'Icône (width/height do <img>) -->
+          <div class="space-y-1">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+              <span>Taille de l'Icône</span>
+              <span id="val-card-icon-size" class="text-sky-400 font-mono">56px</span>
+            </div>
+            <input type="range" id="slider-card-icon-size" min="20" max="90" step="2" value="56"
+              class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+          </div>
+
+          <!-- Taille du Titre (ville) -->
+          <div class="space-y-1">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+              <span>Taille du Titre</span>
+              <span id="val-card-city-size" class="text-sky-400 font-mono">10px</span>
+            </div>
+            <input type="range" id="slider-card-city-size" min="7" max="16" step="1" value="10"
+              class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+          </div>
+
+          <!-- Taille du Nombre (température) -->
+          <div class="space-y-1">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+              <span>Taille du Nombre</span>
+              <span id="val-card-value-size" class="text-sky-400 font-mono">15px</span>
+            </div>
+            <input type="range" id="slider-card-value-size" min="10" max="24" step="1" value="15"
+              class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+          </div>
+
+          <!-- Espacements internes -->
+          <div class="space-y-1 pt-2 border-t border-slate-800/60">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+              <span>Titre ↔ Icône</span>
+              <span id="val-card-gap" class="text-sky-400 font-mono">0px</span>
+            </div>
+            <input type="range" id="slider-card-gap" min="0" max="10" step="1" value="0"
+              class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+          </div>
+          <div class="space-y-1">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-400">
+              <span>Icône ↔ Nombre</span>
+              <span id="val-card-row-gap" class="text-sky-400 font-mono">0px</span>
+            </div>
+            <input type="range" id="slider-card-row-gap" min="0" max="10" step="1" value="0"
+              class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+          </div>
+
+          <!-- Marges internes (padding) -->
+          <div class="pt-2 border-t border-slate-800/60">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1.5">Marges Internes</span>
+            <div class="grid grid-cols-2 gap-x-3 gap-y-2">
+              <div class="space-y-1">
+                <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                  <span>Haut</span>
+                  <span id="val-card-padding-top" class="text-sky-400 font-mono">2px</span>
+                </div>
+                <input type="range" id="slider-card-padding-top" min="0" max="14" step="1" value="2"
+                  class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+              </div>
+              <div class="space-y-1">
+                <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                  <span>Droite</span>
+                  <span id="val-card-padding-right" class="text-sky-400 font-mono">6px</span>
+                </div>
+                <input type="range" id="slider-card-padding-right" min="0" max="14" step="1" value="6"
+                  class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+              </div>
+              <div class="space-y-1">
+                <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                  <span>Bas</span>
+                  <span id="val-card-padding-bottom" class="text-sky-400 font-mono">2px</span>
+                </div>
+                <input type="range" id="slider-card-padding-bottom" min="0" max="14" step="1" value="2"
+                  class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+              </div>
+              <div class="space-y-1">
+                <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                  <span>Gauche</span>
+                  <span id="val-card-padding-left" class="text-sky-400 font-mono">2px</span>
+                </div>
+                <input type="range" id="slider-card-padding-left" min="0" max="14" step="1" value="2"
+                  class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+              </div>
+            </div>
+          </div>
+
+          <!-- Position des Éléments (nudge X/Y de cada componente do card) -->
+          <div class="pt-2 border-t border-slate-800/60 space-y-2.5">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Position des Éléments</span>
+
+            <div class="space-y-1">
+              <span class="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Ville</span>
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                <div class="space-y-1">
+                  <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                    <span>X</span>
+                    <span id="val-card-city-offset-x" class="text-sky-400 font-mono">0px</span>
+                  </div>
+                  <input type="range" id="slider-card-city-offset-x" min="-20" max="20" step="1" value="0"
+                    class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-1">
+                  <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                    <span>Y</span>
+                    <span id="val-card-city-offset-y" class="text-sky-400 font-mono">0px</span>
+                  </div>
+                  <input type="range" id="slider-card-city-offset-y" min="-20" max="20" step="1" value="0"
+                    class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <span class="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Icône</span>
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                <div class="space-y-1">
+                  <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                    <span>X</span>
+                    <span id="val-card-icon-offset-x" class="text-sky-400 font-mono">0px</span>
+                  </div>
+                  <input type="range" id="slider-card-icon-offset-x" min="-20" max="20" step="1" value="0"
+                    class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-1">
+                  <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                    <span>Y</span>
+                    <span id="val-card-icon-offset-y" class="text-sky-400 font-mono">0px</span>
+                  </div>
+                  <input type="range" id="slider-card-icon-offset-y" min="-20" max="20" step="1" value="0"
+                    class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <span class="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Nombre</span>
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                <div class="space-y-1">
+                  <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                    <span>X</span>
+                    <span id="val-card-value-offset-x" class="text-sky-400 font-mono">0px</span>
+                  </div>
+                  <input type="range" id="slider-card-value-offset-x" min="-20" max="20" step="1" value="0"
+                    class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-1">
+                  <div class="flex justify-between text-[9px] font-semibold text-slate-500">
+                    <span>Y</span>
+                    <span id="val-card-value-offset-y" class="text-sky-400 font-mono">0px</span>
+                  </div>
+                  <input type="range" id="slider-card-value-offset-y" min="-20" max="20" step="1" value="0"
+                    class="w-full accent-sky-500 bg-slate-950 h-1 rounded appearance-none cursor-pointer">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Couleurs -->
+          <div class="pt-2 border-t border-slate-800/60">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1.5">Couleurs</span>
+            <div class="grid grid-cols-3 gap-2">
+              <div class="flex flex-col items-center gap-1">
+                <input type="color" id="color-card-bg" value="#0f172a"
+                  class="w-8 h-8 rounded-full border border-slate-700 bg-transparent cursor-pointer overflow-hidden [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none">
+                <span class="text-[9px] text-slate-500">Fond</span>
+              </div>
+              <div class="flex flex-col items-center gap-1">
+                <input type="color" id="color-card-border" value="#38bdf8"
+                  class="w-8 h-8 rounded-full border border-slate-700 bg-transparent cursor-pointer overflow-hidden [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none">
+                <span class="text-[9px] text-slate-500">Bordure</span>
+              </div>
+              <div class="flex flex-col items-center gap-1">
+                <input type="color" id="color-card-text" value="#ffffff"
+                  class="w-8 h-8 rounded-full border border-slate-700 bg-transparent cursor-pointer overflow-hidden [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none">
+                <span class="text-[9px] text-slate-500">Texte</span>
+              </div>
+            </div>
+          </div>
+
+          <button id="btn-reset-card-appearance" type="button"
+            class="w-full mt-1 bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:text-sky-400 text-slate-400 text-[10px] font-semibold py-1.5 rounded-md transition">
+            Réinitialiser par défaut
+          </button>
         </div>
       </div>
 
@@ -497,7 +986,7 @@
 
       <!-- Conteúdo do Modal (Scrollable) -->
       <div class="p-6 overflow-y-auto space-y-5 flex-1 no-scrollbar">
-        
+
         <!-- Formulário de adição de cidade por CP ou Nom -->
         <div class="space-y-2 bg-slate-950/40 p-4 border border-slate-800/50 rounded-xl">
           <h3 class="text-xs font-semibold text-sky-400 uppercase tracking-wider">Ajouter une Ville (Code Postal ou Nom)</h3>

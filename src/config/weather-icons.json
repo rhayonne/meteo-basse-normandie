@@ -1,0 +1,42 @@
+{
+  "_comment": "Mapeamento dos códigos WMO retornados pelo campo weather_code da API Open-Meteo para os ícones animados do Meteocons (meteocons.com, CDN oficial). Referência dos códigos: https://open-meteo.com/en/docs (seção WMO Weather interpretation codes).",
+  "cdn": {
+    "_comment": "Para trocar o visual de TODOS os ícones do app, basta mudar 'style' abaixo — nenhum código precisa mudar. Estilos disponíveis: 'fill' (preenchido), 'flat', 'line' (contorno) ou 'monochrome'. 'version' fixa a versão no CDN (https://cdn.meteocons.com/docs) para evitar mudanças inesperadas; 'format' usa svg animado (use 'svg-static' para uma versão parada, mais leve).",
+    "baseUrl": "https://cdn.meteocons.com",
+    "version": "3.0.0-next.10",
+    "format": "svg",
+    "style": "fill"
+  },
+  "codes": {
+    "0": { "day": "clear-day", "night": "clear-night", "label": "Ensoleillé" },
+    "1": { "day": "partly-cloudy-day", "night": "partly-cloudy-night", "label": "Peu nuageux" },
+    "2": { "day": "partly-cloudy-day", "night": "partly-cloudy-night", "label": "Nuageux" },
+    "3": { "day": "overcast", "night": "overcast", "label": "Couvert" },
+    "45": { "day": "fog-day", "night": "fog-night", "label": "Brouillard" },
+    "48": { "day": "fog-day", "night": "fog-night", "label": "Brouillard givrant" },
+    "51": { "day": "drizzle", "night": "drizzle", "label": "Bruine légère" },
+    "53": { "day": "drizzle", "night": "drizzle", "label": "Bruine modérée" },
+    "55": { "day": "drizzle", "night": "drizzle", "label": "Bruine dense" },
+    "56": { "day": "sleet", "night": "sleet", "label": "Bruine verglaçante" },
+    "57": { "day": "sleet", "night": "sleet", "label": "Bruine verglaçante forte" },
+    "61": { "day": "partly-cloudy-day-rain", "night": "partly-cloudy-night-rain", "label": "Pluie légère" },
+    "63": { "day": "rain", "night": "rain", "label": "Pluie modérée" },
+    "65": { "day": "rain", "night": "rain", "label": "Pluie forte" },
+    "66": { "day": "sleet", "night": "sleet", "label": "Pluie verglaçante" },
+    "67": { "day": "sleet", "night": "sleet", "label": "Pluie verglaçante forte" },
+    "71": { "day": "partly-cloudy-day-snow", "night": "partly-cloudy-night-snow", "label": "Neige légère" },
+    "73": { "day": "snow", "night": "snow", "label": "Neige modérée" },
+    "75": { "day": "snow", "night": "snow", "label": "Neige forte" },
+    "77": { "day": "snow", "night": "snow", "label": "Grains de neige" },
+    "80": { "day": "partly-cloudy-day-rain", "night": "partly-cloudy-night-rain", "label": "Averses légères" },
+    "81": { "day": "rain", "night": "rain", "label": "Averses modérées" },
+    "82": { "day": "rain", "night": "rain", "label": "Averses violentes" },
+    "85": { "day": "partly-cloudy-day-snow", "night": "partly-cloudy-night-snow", "label": "Averses de neige" },
+    "86": { "day": "snow", "night": "snow", "label": "Averses de neige fortes" },
+    "95": { "day": "thunderstorms-day", "night": "thunderstorms-night", "label": "Orage" },
+    "96": { "day": "thunderstorms-day-rain", "night": "thunderstorms-night-rain", "label": "Orage avec grêle" },
+    "99": { "day": "thunderstorms-day-rain", "night": "thunderstorms-night-rain", "label": "Orage violent avec grêle" }
+  },
+  "rainOverride": { "day": "rain", "night": "rain", "label": "Pluie" },
+  "default": { "day": "not-available", "night": "not-available", "label": "Variable" }
+}
